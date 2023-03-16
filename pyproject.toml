@@ -16,13 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
 ]
-dependencies = [
-    "torch >= 2.0.0",
-    "torchvision",
-    "detectron2 @ git+https://github.com/facebookresearch/detectron2.git",
-    "scikit-learn",
-    "numba",
-]
+dependencies = ["torch >= 2.0.0", "detectron2 >= 0.6", "numba"]
 dynamic = ["version"]
 
 [tool.setuptools.dynamic]
