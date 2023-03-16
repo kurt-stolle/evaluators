@@ -1,12 +1,14 @@
 [build-system]
-requires = ["flit"]
-build-backend = "flit.buildapi"
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "evaluators"
 authors = [{ name = "Kurt Stolle", email = "k.h.w.stolle@gmail.com" }]
 description = "Various scene understanding and perception evaluation metrics."
 readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["evaluation", "metrics", "scene understanding", "perception"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -14,11 +16,19 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
 ]
-requires-python = ">=3.10"
+dependencies = ["torch >= 2.0.0", "scipy", "numpy"]
 dynamic = ["version"]
 
+[tool.setuptools.dynamic]
+version = { attr = "evaluators.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["sources"]
+include = ["*"]
+exclude = []
+
 [project.optional-dependencies]
-spark = ["pyspark>=3.0.0"]
+docs = ["sphinx", "sphinx-rtd-theme"]
 test = [
     "bandit[toml]==1.7.4",
     "black==23.1.0",
@@ -101,36 +111,6 @@ markers = [
     "slow: marks tests as slow",
     "unit: fast offline tests",
 ]
-
-[tool.tox]
-legacy_tox_ini = """
-[tox]
-envlist = py, integration, spark, all
-
-[testenv]
-commands =
-    pytest -m "not integration and not spark" {posargs}
-
-[testenv:integration]
-commands =
-    pytest -m "integration" {posargs}
-
-[testenv:spark]
-extras = spark
-setenv =
-       PYSPARK_DRIVER_PYTHON = {envpython}
-       PYSPARK_PYTHON = {envpython}
-commands =
-    pytest -m "spark" {posargs}
-
-[testenv:all]
-extras = all
-setenv =
-       PYSPARK_DRIVER_PYTHON = {envpython}
-       PYSPARK_PYTHON = {envpython}
-commands =
-    pytest {posargs}
-"""
 
 [tool.pylint]
 extension-pkg-whitelist = [
