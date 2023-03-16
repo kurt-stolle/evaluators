@@ -8,5 +8,5 @@ from .mde import *
 from .panseg import *
 from .step import *
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
