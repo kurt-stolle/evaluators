@@ -30,6 +30,7 @@ exclude = []
 [project.optional-dependencies]
 docs = ["sphinx", "sphinx-rtd-theme"]
 test = [
+    "hypothesis",
     "bandit[toml]==1.7.4",
     "black==23.1.0",
     "check-manifest==0.48",
@@ -49,9 +50,6 @@ test = [
     "shellcheck-py==0.9.0.2",
 ]
 
-[tool.flit.module]
-name = "evaluators"
-
 [tool.bandit]
 exclude_dirs = ["build", "dist", "tests", "scripts"]
 number = 4
@@ -61,6 +59,7 @@ targets = "sources"
 [tool.black]
 line-length = 120
 fast = true
+target-version = ['py310']
 
 [tool.coverage.run]
 branch = true
@@ -88,14 +87,12 @@ ignore = ["E722", "B001", "W503", "E203"]
 [tool.pyright]
 include = ["sources"]
 exclude = ["**/node_modules", "**/__pycache__"]
-venv = "env37"
-
+venv = "env310"
+reportPrivateImportUsage = false
 reportMissingImports = true
 reportMissingTypeStubs = false
-
-pythonVersion = "3.7"
+pythonVersion = "3.10"
 pythonPlatform = "Linux"
-
 executionEnvironments = [{ root = "sources" }]
 
 [tool.pytest.ini_options]
@@ -238,3 +235,10 @@ deprecated-modules = "optparse,tkinter.tix"
 
 [tool.pylint.'EXCEPTIONS']
 overgeneral-exceptions = ["BaseException", "Exception"]
+
+[tool.isort]
+multi_line_output = 5
+include_trailing_comma = true
+force_grid_wrap = 0
+line_length = 80
+profile = "black"
