@@ -51,17 +51,13 @@ class _DataShared:
             raise ValueError("Data entries are not all the same shape!")
 
         if not len(self.shape) == 3:
-            raise ValueError(
-                f"Shared data is restricted to concatenated items: {self.shape}"
-            )
+            raise ValueError(f"Shared data is restricted to concatenated items: {self.shape}")
 
         self.dtypes = [i.dtype for t in data for i in t]
         self.nbytes = [i.nbytes for t in data for i in t]
 
         # Allocate shared memory
-        self.shm = shared_memory.SharedMemory(
-            create=True, size=sum(self.nbytes)
-        )
+        self.shm = shared_memory.SharedMemory(create=True, size=sum(self.nbytes))
 
         # Move data into shared memory
         offset = 0
@@ -193,11 +189,7 @@ class DVPSEvaluator:
         m = MetadataCatalog.get(dataset_name)
 
         thing_classes = list(m.thing_dataset_id_to_contiguous_id.values())
-        stuff_classes = list(
-            _id
-            for _id in m.stuff_dataset_id_to_contiguous_id.values()
-            if _id not in thing_classes
-        )
+        stuff_classes = list(_id for _id in m.stuff_dataset_id_to_contiguous_id.values() if _id not in thing_classes)
 
         return cls(
             ignored_label=m.ignore_label,
@@ -211,15 +203,9 @@ class DVPSEvaluator:
         # Read data from shared memory
         data = data_shared.recover(data_slice)
 
-        all_classes = (
-            self.thing_classes + self.stuff_classes + [self.ignored_label]
-        )
-        assert np.isin(data.semantic.true, all_classes).all(), np.unique(
-            data.semantic.true
-        )
-        assert np.isin(data.semantic.pred, all_classes).all(), np.unique(
-            data.semantic.pred
-        )
+        all_classes = self.thing_classes + self.stuff_classes + [self.ignored_label]
+        assert np.isin(data.semantic.true, all_classes).all(), np.unique(data.semantic.true)
+        assert np.isin(data.semantic.pred, all_classes).all(), np.unique(data.semantic.pred)
 
         # Promote integer type s.t. we can multiply with offset and label
         # divisor
@@ -227,12 +213,8 @@ class DVPSEvaluator:
         semantic_true = data.semantic.true.astype(np.int32)
 
         # Create label matrices
-        labels_pred = _cat_batch(
-            semantic_pred * self.label_divisor + data.instance.pred
-        )
-        labels_true = _cat_batch(
-            semantic_true * self.label_divisor + data.instance.true
-        )
+        labels_pred = _cat_batch(semantic_pred * self.label_divisor + data.instance.pred)
+        labels_true = _cat_batch(semantic_true * self.label_divisor + data.instance.true)
 
         # Ignore predictions when the absolute relative error (ARE) is greater
         # than the threshold value
@@ -248,18 +230,14 @@ class DVPSEvaluator:
             depth_pred_valid = depth_pred[depth_mask]
             depth_true_valid = depth_true[depth_mask]
 
-            abs_rel = stable_div(
-                np.abs(depth_pred_valid - depth_true_valid), depth_true_valid
-            )
+            abs_rel = stable_div(np.abs(depth_pred_valid - depth_true_valid), depth_true_valid)
 
             pred_in_mask = labels_pred[:, : depth_pred.shape[1]]
             pred_in_depth_mask = pred_in_mask[depth_mask]
 
             ignored_pred_mask = abs_rel > self.depth_threshold
 
-            pred_in_depth_mask[ignored_pred_mask] = (
-                self.ignored_label * self.label_divisor
-            )
+            pred_in_depth_mask[ignored_pred_mask] = self.ignored_label * self.label_divisor
             pred_in_mask[depth_mask] = pred_in_depth_mask
             labels_pred[:, : depth_pred.shape[1]] = pred_in_mask
 
@@ -363,19 +341,11 @@ class DVPSEvaluator(DatasetEvaluator):
                 sequence_id=x["sequence_id"],
                 frame=x["frame"],
                 data=_Data(
-                    instance=_DataTuple(
-                        true=true_instance, pred=pred_instance  # type: ignore
-                    ),
-                    semantic=_DataTuple(
-                        true=true_semantic, pred=pred_semantic  # type: ignore
-                    ),
+                    instance=_DataTuple(true=true_instance, pred=pred_instance),  # type: ignore
+                    semantic=_DataTuple(true=true_semantic, pred=pred_semantic),  # type: ignore
                     depth=_DataTuple(
                         true=true_depth.cpu().numpy().astype(np.float32),
-                        pred=y["depth"]
-                        .detach()
-                        .cpu()
-                        .numpy()
-                        .astype(np.float32),
+                        pred=y["depth"].detach().cpu().numpy().astype(np.float32),
                     ),
                 ),
             )
@@ -428,9 +398,7 @@ class DVPSEvaluator(DatasetEvaluator):
 
             with mp.Pool() as p:
                 for frames in self._frames:
-                    _logger.info(
-                        f"Evaluating DVPS metrics using window size: {frames}"
-                    )
+                    _logger.info(f"Evaluating DVPS metrics using window size: {frames}")
 
                     seq_slices = _split_slices(seq_shm, frames)
 
@@ -458,12 +426,7 @@ class DVPSEvaluator(DatasetEvaluator):
                 for shm in seq_shm.values():
                     shm.close()
 
-        return {
-            self.task_name: {
-                key: float(mean(values)) * 100.0
-                for key, values in result.items()
-            }
-        }
+        return {self.task_name: {key: float(mean(values)) * 100.0 for key, values in result.items()}}
 
 
 def _cat_batch(a: NP.NDArray[_ScalarType], axis=1) -> NP.NDArray[_ScalarType]:
@@ -512,9 +475,7 @@ def _split_per_seq(
     return seq_data
 
 
-def _split_slices(
-    seq_data: dict[str, _DataShared], num_frames: int
-) -> dict[str, list[slice]]:
+def _split_slices(seq_data: dict[str, _DataShared], num_frames: int) -> dict[str, list[slice]]:
     """
     Generate indices that cover `num_frames` annotated images of a sequence.
 
@@ -534,9 +495,6 @@ def _split_slices(
 
     for seq_id, data in seq_data.items():
         seq_len = data.shape[0]
-        seq_slice[seq_id] = [
-            slice(frame, frame + num_frames)
-            for frame in range(seq_len - num_frames + 1)
-        ]
+        seq_slice[seq_id] = [slice(frame, frame + num_frames) for frame in range(seq_len - num_frames + 1)]
 
     return seq_slice

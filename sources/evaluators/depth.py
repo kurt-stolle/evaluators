@@ -17,9 +17,12 @@ from typing_extensions import Self
 from ._depth_utils import DepthAccumulator, DepthMetrics
 from ._types import Exposures, Outcomes
 
-logger = setup_logger(name=f"{__name__}_{comm.get_local_rank()}")
+_logger = setup_logger(name=f"{__name__}_{comm.get_local_rank()}")
 
-class MDEEvaluator(DatasetEvaluator):
+__all__ = ["DepthEvaluator"]
+
+
+class DepthEvaluator(DatasetEvaluator):
     def __init__(
         self,
         *,
@@ -29,14 +32,11 @@ class MDEEvaluator(DatasetEvaluator):
         stuff_classes: Iterable[int],
         task_name="task_depth",
     ):
-
         self.task_name: Final = task_name
         self.ignored_label: Final = ignored_label
         self.label_divisor: Final = label_divisor
         self.thing_classes: Final = list(thing_classes)
-        self.stuff_classes: Final = list(
-            _id for _id in stuff_classes if _id not in self.thing_classes
-        )
+        self.stuff_classes: Final = list(_id for _id in stuff_classes if _id not in self.thing_classes)
         self.metrics = DepthAccumulator()
 
     @classmethod
@@ -46,11 +46,7 @@ class MDEEvaluator(DatasetEvaluator):
         m = MetadataCatalog.get(dataset_name)
 
         thing_classes = list(m.thing_dataset_id_to_contiguous_id.values())
-        stuff_classes = list(
-            _id
-            for _id in m.stuff_dataset_id_to_contiguous_id.values()
-            if _id not in thing_classes
-        )
+        stuff_classes = list(_id for _id in m.stuff_dataset_id_to_contiguous_id.values() if _id not in thing_classes)
 
         return cls(
             ignored_label=m.ignore_label,
@@ -105,19 +101,17 @@ class MDEEvaluator(DatasetEvaluator):
 
     def evaluate(self) -> Optional[dict[str, dict[str, float]]]:
         comm.synchronize()
-        self.metrics = reduce(
-            lambda a, b: a and a.gather(b) or b, comm.gather(self.metrics), None
-        )
+        self.metrics = reduce(lambda a, b: a and a.gather(b) or b, comm.gather(self.metrics), None)
 
         if not comm.is_main_process():
             return None
 
-        logger.info("Combining depth evaluator results...")
+        _logger.info("Combining depth evaluator results...")
 
         result = self.metrics.result()
         output = {}
 
-        logger.info("Computing results for overall, things and stuff...")
+        _logger.info("Computing results for overall, things and stuff...")
 
         for field, value in result:
             output[field] = value
@@ -154,4 +148,4 @@ class MDEEvaluator(DatasetEvaluator):
             stralign="center",
             numalign="center",
         )
-        logger.info("Depth evaluation results:\n" + table)
+        _logger.info("Depth evaluation results:\n" + table)

@@ -25,7 +25,7 @@ from ._utils import count_labels, stable_div
 
 __all__ = ["PanSegEvaluator"]
 
-logger = setup_logger(name=__name__)
+_logger = setup_logger(name=__name__)
 
 
 class PQResult(NamedTuple):
@@ -63,25 +63,20 @@ class PanSegEvaluator(DatasetEvaluator):
         mask_key: Optional[str] = None,
         task_name="task_panseg",
     ):
-
         metadata = MetadataCatalog.get(dataset_name)
 
         self.task_name = task_name
         self.label_divisor: int = metadata.label_divisor
 
         # Read thing classes from metadata
-        self.thing_classes: list[int] = list(
-            metadata.thing_dataset_id_to_contiguous_id.values()
-        )
+        self.thing_classes: list[int] = list(metadata.thing_dataset_id_to_contiguous_id.values())
         self.thing_names: list[str] = list(metadata.thing_classes)
 
         # Mask for sparse prediction
         self.mask_key = mask_key
         # Read stuff classes from metadata
         self.stuff_classes: list[int] = [
-            id_
-            for id_ in metadata.stuff_dataset_id_to_contiguous_id.values()
-            if id_ not in self.thing_classes
+            id_ for id_ in metadata.stuff_dataset_id_to_contiguous_id.values() if id_ not in self.thing_classes
         ]
         self.stuff_names: list[str] = list(metadata.stuff_classes)
 
@@ -128,9 +123,7 @@ class PanSegEvaluator(DatasetEvaluator):
                 pred[mask] = self.ignored_label * self.label_divisor
                 true[mask] = self.ignored_label * self.label_divisor
 
-            self._items.append(
-                EvalPair(true=true.cpu().numpy(), pred=pred.cpu().numpy())
-            )
+            self._items.append(EvalPair(true=true.cpu().numpy(), pred=pred.cpu().numpy()))
 
     def evaluate(self):
         comm.synchronize()
@@ -158,18 +151,14 @@ class PanSegEvaluator(DatasetEvaluator):
         if not comm.is_main_process():
             return
 
-        pqs_total = PQStat(
-            *map(partial(np.sum, axis=0), zip(*pqs))  # type: ignore
-        )
+        pqs_total = PQStat(*map(partial(np.sum, axis=0), zip(*pqs)))  # type: ignore
         res = evaluate_pq(
             iou=pqs_total.iou,
             tp=pqs_total.tp,
             fp=pqs_total.fp,
             fn=pqs_total.fn,
         )
-        pqs_mean = PQStat(
-            *map(partial(np.mean, axis=0), zip(*pqs))  # type: ignore
-        )
+        pqs_mean = PQStat(*map(partial(np.mean, axis=0), zip(*pqs)))  # type: ignore
 
         output = {}
         for key, values in {
@@ -238,7 +227,7 @@ class PanSegEvaluator(DatasetEvaluator):
             stralign="center",
             numalign="center",
         )
-        logger.info("PQ evaluation results:\n" + table)
+        _logger.info("PQ evaluation results:\n" + table)
 
 
 def evaluate_pq(
@@ -254,7 +243,7 @@ def evaluate_pq(
     # Mask out metrics that have a sum total of 0 for TP, FN and FP
     mask = np.equal(tp + fn + fp, 0)
 
-    logger.info(f"Invalid entries: {mask.sum()}")
+    _logger.info(f"Invalid entries: {mask.sum()}")
 
     # Return results
     return PQResult(
@@ -396,10 +385,7 @@ def accumulate(
             continue
         # A false positive is not penalized if is mostly ignored in the
         # groundtruth.
-        if (
-            isec_areas.get(true_ignored + pred_label, zero_)
-            / pred_areas[pred_label]
-        ) > 0.5:
+        if (isec_areas.get(true_ignored + pred_label, zero_) / pred_areas[pred_label]) > 0.5:
             continue
         pred_cat = int(pred_label // label_divisor_)
         if pred_cat == ignored_label_:
@@ -407,8 +393,6 @@ def accumulate(
         try:
             stat.fp[pred_cat] += 1
         except Exception:
-            warn(
-                f"Predicted category {pred_cat} is not valid! Treated as IGNORE!"
-            )
+            warn(f"Predicted category {pred_cat} is not valid! Treated as IGNORE!")
 
     return stat

@@ -6,7 +6,13 @@ of a specific machine learning framework.
 """
 import multiprocessing as mp
 from typing import (
-    Any, Iterable, MutableMapping, NamedTuple, Optional, Sequence, TypeVar,
+    Any,
+    Iterable,
+    MutableMapping,
+    NamedTuple,
+    Optional,
+    Sequence,
+    TypeVar,
 )
 
 import numpy as np
@@ -17,16 +23,16 @@ from detectron2.utils import comm
 from detectron2.utils.logger import setup_logger
 from sklearn.metrics import confusion_matrix
 from tabulate import tabulate
-from torch import Tensor
 
 from ._shm import EvalPair, SharedData
 from ._types import Exposures, Outcomes
 
 __all__ = ["STEPEvaluator"]
 
-logger = setup_logger(name=f"{__name__}")
+_logger = setup_logger(name=f"{__name__}")
 
 _LabelType = np.int64
+
 
 def compute_iou(
     confusion: NP.NDArray[np.float64],
@@ -117,9 +123,7 @@ class STQAccumulator(mp.Process):
             self._include_indices = np.arange(self.num_classes)
         else:
             self._confusion_matrix_size = num_classes
-            self._include_indices = np.array(
-                [i for i in range(num_classes) if i != self.ignored_label]
-            )
+            self._include_indices = np.array([i for i in range(num_classes) if i != self.ignored_label])
 
         lower_bound = num_classes * max_instances_per_category
         if offset < lower_bound:
@@ -202,12 +206,8 @@ class STQAccumulator(mp.Process):
         prediction_mask = np.zeros_like(semantic_prediction, dtype=bool)
 
         for things_class_id in self.things_list:
-            label_mask = np.logical_or(
-                label_mask, np.equal(semantic_label, things_class_id)
-            )
-            prediction_mask = np.logical_or(
-                prediction_mask, np.equal(semantic_prediction, things_class_id)
-            )
+            label_mask = np.logical_or(label_mask, np.equal(semantic_label, things_class_id))
+            prediction_mask = np.logical_or(prediction_mask, np.equal(semantic_prediction, things_class_id))
 
         # Select the `crowd` region of the current class. This region is
         # encoded instance id `0`.
@@ -219,9 +219,7 @@ class STQAccumulator(mp.Process):
 
         # Do not punish id assignment for regions that are annotated as `crowd`
         # in the ground-truth.
-        prediction_mask = np.logical_and(
-            prediction_mask, np.logical_not(is_crowd)
-        )
+        prediction_mask = np.logical_and(prediction_mask, np.logical_not(is_crowd))
 
         # Compute and update areas of ground-truth, predictions and
         # intersections.
@@ -313,9 +311,7 @@ class STQAccumulator(mp.Process):
         aq_per_seq = np.asarray(aq_per_seq)
         aq_sum_per_seq = np.asarray(aq_sum_per_seq)
         aq_amount_per_seq = np.asarray(aq_amount_per_seq)
-        aq_mean = np.sum(aq_sum_per_seq) / np.maximum(
-            np.sum(aq_amount_per_seq), 1e-12
-        )
+        aq_mean = np.sum(aq_sum_per_seq) / np.maximum(np.sum(aq_amount_per_seq), 1e-12)
 
         # total_confusion = np.sum(iou_confusion_per_seq, axis=0, keepdims=True)
         total_confusion = np.zeros_like(iou_confusion_per_seq[0])
@@ -348,23 +344,16 @@ class STQAccumulator(mp.Process):
 
 
 class STEPEvaluator(DatasetEvaluator):
-    def __init__(
-        self, *, dataset_name: str, task_name="task_step", label_divisor=1000
-    ):
-
+    def __init__(self, *, dataset_name: str, task_name="task_step", label_divisor=1000):
         self.task_name = task_name
         self.last_frame: dict[Any, Any] = {}
 
         # Properties from metadata
         metadata = MetadataCatalog.get(dataset_name)
 
-        self.thing_classes = list(
-            metadata.thing_dataset_id_to_contiguous_id.values()
-        )
+        self.thing_classes = list(metadata.thing_dataset_id_to_contiguous_id.values())
         self.stuff_classes = [
-            id_
-            for id_ in metadata.stuff_dataset_id_to_contiguous_id.values()
-            if id_ not in self.thing_classes
+            id_ for id_ in metadata.stuff_dataset_id_to_contiguous_id.values() if id_ not in self.thing_classes
         ]
 
         assert len(self.stuff_classes) > 0
@@ -415,7 +404,7 @@ class STEPEvaluator(DatasetEvaluator):
     def evaluate(self):
         comm.synchronize()
 
-        logger.info("Moving data to shared memory...")
+        _logger.info("Moving data to shared memory...")
         seq_shm_split = _split_per_seq(self._items)
         assert len(self._items) == 0, "Not all items were consumed"
 
@@ -442,11 +431,10 @@ class STEPEvaluator(DatasetEvaluator):
         queue = mp.Queue()
         processes: list[STQAccumulator] = []
         try:
-            logger.info("Starting concurrent sequence evaluation...")
+            _logger.info("Starting concurrent sequence evaluation...")
             for seq_id, seq_data in seq_shm.items():
                 p = STQAccumulator(
-                    num_classes=len(self.thing_classes)
-                    + len(self.stuff_classes),
+                    num_classes=len(self.thing_classes) + len(self.stuff_classes),
                     things_list=self.thing_classes,
                     ignored_label=self.ignored_label,
                     max_instances_per_category=self.label_divisor,
@@ -471,7 +459,7 @@ class STEPEvaluator(DatasetEvaluator):
                 for shm in seq_shm.values():
                     shm.close()
 
-        logger.info(f"Computing overall results")
+        _logger.info(f"Computing overall results")
         result_all = STQAccumulator.accumulate(list(results.values()))
 
         result = {
@@ -513,7 +501,7 @@ class STEPEvaluator(DatasetEvaluator):
             stralign="center",
             numalign="center",
         )
-        logger.info("STEP evaluation results:\n" + table)
+        _logger.info("STEP evaluation results:\n" + table)
 
 
 def _stack_tuples(values: Iterable[EvalPair]) -> EvalPair:

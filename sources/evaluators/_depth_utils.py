@@ -9,10 +9,9 @@ from ._abc import MetricAccumulator, MetricResult
 
 ResultType = NP.NDArray[np.float64]
 
+
 @numba.jit(nopython=True, nogil=True, cache=True)
-def compute_metrics(
-    true: NP.NDArray[np.float64], pred: NP.NDArray[np.float64]
-) -> NP.NDArray[np.float64]:
+def compute_metrics(true: NP.NDArray[np.float64], pred: NP.NDArray[np.float64]) -> NP.NDArray[np.float64]:
     eps = np.finfo(np.float32).eps
     true = np.maximum(true, eps)
     pred = np.maximum(pred, eps)

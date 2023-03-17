@@ -3,10 +3,9 @@ Various scene understanding and perception evaluation metrics.
 """
 from __future__ import annotations
 
-from .dvps import *
-from .mde import *
-from .panseg import *
-from .step import *
+from .depth import DepthEvaluator
+from .dvps import DVPSEvaluator
+from .panseg import PanSegEvaluator
+from .step import STEPEvaluator
 
-__version__ = "1.0.1"
-
+__version__ = "1.0.2"

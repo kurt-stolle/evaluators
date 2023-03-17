@@ -35,18 +35,14 @@ class SharedData(Generic[_DataItem]):
             raise ValueError("Data entries are not all the same shape!")
 
         if not len(self.shape) == 3:
-            raise ValueError(
-                f"Shared data is restricted to concatenated items: {self.shape}"
-            )
+            raise ValueError(f"Shared data is restricted to concatenated items: {self.shape}")
 
         self.data_type = type(data)
         self.dtypes = [i.dtype for t in data for i in t]
         self.nbytes = [i.nbytes for t in data for i in t]
 
         # Allocate shared memory
-        self.shm = shared_memory.SharedMemory(
-            create=True, size=sum(self.nbytes)
-        )
+        self.shm = shared_memory.SharedMemory(create=True, size=sum(self.nbytes))
 
         # Move data into shared memory
         offset = 0
@@ -71,19 +67,14 @@ class SharedData(Generic[_DataItem]):
 
         num_records = len(items[0])
 
-        d = tuple(
-            cls._stack_pairs(item[n] for item in items)
-            for n in range(num_records)
-        )
+        d = tuple(cls._stack_pairs(item[n] for item in items) for n in range(num_records))
 
         return SharedData(cls.create(d))
 
     @staticmethod
     def _stack_pairs(values: Iterable[EvalPair]) -> EvalPair:
         true, pred = tuple(zip(*values))
-        return EvalPair(
-            true=np.stack(true, axis=0), pred=np.stack(pred, axis=0)
-        )
+        return EvalPair(true=np.stack(true, axis=0), pred=np.stack(pred, axis=0))
 
     def recover(self, data_slice: slice) -> _DataItem:
         """
@@ -107,10 +98,7 @@ class SharedData(Generic[_DataItem]):
 
         assert len(arrays) % 2 == 0, len(arrays)
 
-        data = tuple(
-            EvalPair(arrays.pop(0), arrays.pop(0))
-            for _ in range(len(arrays) // 2)
-        )
+        data = tuple(EvalPair(arrays.pop(0), arrays.pop(0)) for _ in range(len(arrays) // 2))
 
         assert len(arrays) == 0, "Not all entries from mapped array were used!"
 
