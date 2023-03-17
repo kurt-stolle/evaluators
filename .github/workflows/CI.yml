@@ -13,8 +13,9 @@ jobs:
   validation:
     uses: microsoft/action-python/.github/workflows/validation.yml@0.2.0
     with:
-      workdir: sources
-      testdir: tests
+      inputs:
+        workdir: sources
+        testdir: tests
   publish:
     uses: microsoft/action-python/.github/workflows/publish.yml@0.2.0
     secrets:
