@@ -142,7 +142,7 @@ class _VPQ(NamedTuple):
     fp_per_class: NP.NDArray[np.float64]
 
 
-class DVPSEvaluator:
+class DVPQAccumulator:
     """
     Stateless class for accumulating the DVPQ metric. The metric is computed by
     taking the VPQ of pixels at which the depth prediction has an absolute
@@ -151,6 +151,7 @@ class DVPSEvaluator:
 
     def __init__(
         self,
+        *,
         ignored_label: int,
         label_divisor: int,
         thing_classes: list[int],
@@ -301,7 +302,7 @@ class DVPSEvaluator(DatasetEvaluator):
 
     def __init__(
         self,
-        accumulators: list[DVPSEvaluator],
+        accumulators: list[DVPQAccumulator],
         frames: Iterable[int] | set[int],
         # output_dir: Optional[str] = None,
     ):

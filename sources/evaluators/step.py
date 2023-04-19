@@ -8,10 +8,12 @@ import multiprocessing as mp
 from typing import (
     Any,
     Iterable,
+    Iterator,
     MutableMapping,
     NamedTuple,
     Optional,
     Sequence,
+    TypedDict,
     TypeVar,
 )
 
@@ -23,6 +25,7 @@ from detectron2.utils import comm
 from detectron2.utils.logger import setup_logger
 from sklearn.metrics import confusion_matrix
 from tabulate import tabulate
+from torch import Tensor
 
 from ._shm import EvalPair, SharedData
 from ._types import Exposures, Outcomes
@@ -343,32 +346,62 @@ class STQAccumulator(mp.Process):
         self.queue.put((self.sequence_id, res))
 
 
+class STEPExposure(TypedDict):
+    sequence_id: str | int
+    frame: int
+    has_truths: bool
+    labels: Tensor
+
+
+class STEPOutcome(TypedDict):
+    panoptic_seg: tuple[Tensor, None]
+
+
 class STEPEvaluator(DatasetEvaluator):
-    def __init__(self, *, dataset_name: str, task_name="task_step", label_divisor=1000):
+    def __init__(
+        self,
+        *,
+        thing_classes: Sequence[int],
+        stuff_classes: Sequence[int],
+        ignored_label: int,
+        label_divisor: int,
+        task_name="task_step",
+    ):
         self.task_name = task_name
-        self.last_frame: dict[Any, Any] = {}
 
         # Properties from metadata
-        metadata = MetadataCatalog.get(dataset_name)
-
-        self.thing_classes = list(metadata.thing_dataset_id_to_contiguous_id.values())
-        self.stuff_classes = [
-            id_ for id_ in metadata.stuff_dataset_id_to_contiguous_id.values() if id_ not in self.thing_classes
-        ]
-
-        assert len(self.stuff_classes) > 0
-
-        self.ignored_label = metadata.ignore_label
+        self.stuff_classes = list(stuff_classes)
+        self.thing_classes = list(thing_classes)
+        self.ignored_label = ignored_label
         self.label_divisor = label_divisor
 
+        assert len(self.stuff_classes) > 0
         assert self.ignored_label >= 0
 
+        # State
+        self.last_frame: dict[Any, Any] = {}
         self._items: list[STQItem] = []
+
+    @classmethod
+    def from_metadata(cls, dataset_names: str | Sequence[str], **kwargs):
+        m = MetadataCatalog.get(next(iter(dataset_names)) if not isinstance(dataset_names, str) else dataset_names)
+
+        thing_classes = list(m.thing_dataset_id_to_contiguous_id.values())
+        stuff_classes = [id_ for id_ in m.stuff_dataset_id_to_contiguous_id.values() if id_ not in thing_classes]
+
+        return cls(
+            ignored_label=m.ignore_label,
+            label_divisor=m.label_divisor,
+            thing_classes=thing_classes,
+            stuff_classes=stuff_classes,
+            **kwargs,
+        )
 
     def reset(self):
         self._items = []
+        self._last_frame = {}
 
-    def process(self, inputs: list[Exposures], outputs: list[Outcomes]):
+    def process(self, inputs: list[STEPExposure], outputs: list[STEPOutcome]):
         for input_, output in zip(inputs, outputs):
             if not input_["has_truths"]:
                 continue
@@ -377,7 +410,7 @@ class STEPEvaluator(DatasetEvaluator):
                 continue
 
             # Sanity check: do frames in a sequence appear sequentially?
-            sequence_id = input_["sequence_id"]
+            sequence_id = str(input_["sequence_id"])
             frame = input_["frame"]
             frame_previous = self.last_frame.get(sequence_id)
 
