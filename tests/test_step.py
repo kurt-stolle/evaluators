@@ -157,9 +157,10 @@ def test_complex():
     )
     for i in range(3):
         acc.process(
-            [step.STEPExposure(has_truths=True, labels=torch.as_tensor(gt[i, ...]), frame=i, sequence_id="A")],
+            [step.STEPExposure(evaluate=True, labels=torch.as_tensor(gt[i, ...]), frame=i, sequence_id="A")],
             [step.STEPOutcome(panoptic_seg=(torch.as_tensor(prediction[i, ...]), None))],
         )
+    assert len(acc._items) == 3
     res = acc.evaluate()
     assert res is not None
     res = res[acc.task_name]

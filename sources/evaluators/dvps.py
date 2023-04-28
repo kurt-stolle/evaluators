@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from functools import cached_property, partial
 from multiprocessing import shared_memory
 from statistics import mean
-from typing import Iterable, NamedTuple, Sequence, Set, TypeVar
+from typing import Any, Iterable, NamedTuple, Sequence, Set, TypeVar
 
 import numpy as np
 import numpy.typing as NP
@@ -18,6 +18,7 @@ from detectron2.utils import comm
 from detectron2.utils.logger import setup_logger
 
 from ._utils import stable_div
+from .base_evaluator import BaseEvaluator
 from .panseg import accumulate
 
 __all__ = ["DVPSEvaluator"]
@@ -290,7 +291,7 @@ class DVPQAccumulator:
         return result
 
 
-class DVPSEvaluator(DatasetEvaluator):
+class DVPSEvaluator(BaseEvaluator):
     """
     Implements metrics for the Depth-Aware Video Panoptic Segmentation (DVPS)
     task.
@@ -326,7 +327,7 @@ class DVPSEvaluator(DatasetEvaluator):
     def reset(self):
         self._items = []
 
-    def _read_item(self, x, y) -> None:
+    def process_item(self, x: dict[str, Any], y: dict[str, Any]) -> None:
         true_labels = x["labels"].numpy()
         true_semantic = (true_labels // 1000).astype(np.uint16)
         true_instance = (true_labels % 1000).astype(np.uint16)
@@ -357,14 +358,6 @@ class DVPSEvaluator(DatasetEvaluator):
                 ),
             )
         )
-
-    def process(self, inputs, outputs):
-        for x, y in zip(inputs, outputs):
-            if not x["evaluate"]:
-                return
-            if x.get("labels") is None:
-                continue
-            self._read_item(x, y)
 
     def evaluate(self):
         """

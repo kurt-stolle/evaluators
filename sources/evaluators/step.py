@@ -20,7 +20,6 @@ from typing import (
 import numpy as np
 import numpy.typing as NP
 from detectron2.data import MetadataCatalog
-from detectron2.evaluation import DatasetEvaluator
 from detectron2.utils import comm
 from detectron2.utils.logger import setup_logger
 from sklearn.metrics import confusion_matrix
@@ -29,6 +28,7 @@ from torch import Tensor
 
 from ._shm import EvalPair, SharedData
 from ._types import Exposures, Outcomes
+from .base_evaluator import BaseEvaluator
 
 __all__ = ["STEPEvaluator"]
 
@@ -301,6 +301,8 @@ class STQAccumulator(mp.Process):
 
     @staticmethod
     def accumulate(seq_data: Sequence[STQResultSingle]) -> STQResult:
+        assert len(seq_data) > 0
+
         (
             stq_per_seq,
             aq_per_seq,
@@ -357,7 +359,9 @@ class STEPOutcome(TypedDict):
     panoptic_seg: tuple[Tensor, None]
 
 
-class STEPEvaluator(DatasetEvaluator):
+class STEPEvaluator(BaseEvaluator):
+    task_name = "task_step"
+
     def __init__(
         self,
         *,
@@ -365,10 +369,7 @@ class STEPEvaluator(DatasetEvaluator):
         stuff_classes: Sequence[int],
         ignored_label: int,
         label_divisor: int,
-        task_name="task_step",
     ):
-        self.task_name = task_name
-
         # Properties from metadata
         self.stuff_classes = list(stuff_classes)
         self.thing_classes = list(thing_classes)
@@ -401,38 +402,33 @@ class STEPEvaluator(DatasetEvaluator):
         self._items = []
         self._last_frame = {}
 
-    def process(self, inputs: list[STEPExposure], outputs: list[STEPOutcome]):
-        for input_, output in zip(inputs, outputs):
-            if not input_["evaluate"]:
-                continue
-            true = input_.get("labels")
-            if true is None:
-                continue
+    def process_item(self, input_: dict[str, Any], output: dict[str, Any]) -> None:
+        true = input_["labels"]
 
-            # Sanity check: do frames in a sequence appear sequentially?
-            sequence_id = str(input_["sequence_id"])
-            frame = input_["frame"]
-            frame_previous = self.last_frame.get(sequence_id)
+        # Sanity check: do frames in a sequence appear sequentially?
+        sequence_id = str(input_["sequence_id"])
+        frame = input_["frame"]
+        frame_previous = self.last_frame.get(sequence_id)
 
-            assert frame_previous is None or frame_previous < frame, (
-                f"Frame {frame} not processed in the right order for "
-                f"sequence {sequence_id}. Last frame was: {frame_previous}"
+        assert frame_previous is None or frame_previous < frame, (
+            f"Frame {frame} not processed in the right order for "
+            f"sequence {sequence_id}. Last frame was: {frame_previous}"
+        )
+
+        self.last_frame[sequence_id] = frame
+
+        pred, _ = output["panoptic_seg"]  # type: ignore
+        pred[pred == -1] = self.ignored_label * self.label_divisor
+        pred = pred.cpu().numpy()
+
+        # Update metric
+        self._items.append(
+            STQItem(
+                sequence_id,
+                frame,
+                STQData(EvalPair(true=true.numpy(), pred=pred)),
             )
-
-            self.last_frame[sequence_id] = frame
-
-            pred, _ = output["panoptic_seg"]  # type: ignore
-            pred[pred == -1] = self.ignored_label * self.label_divisor
-            pred = pred.cpu().numpy()
-
-            # Update metric
-            self._items.append(
-                STQItem(
-                    sequence_id,
-                    frame,
-                    STQData(EvalPair(true=true.numpy(), pred=pred)),
-                )
-            )
+        )
 
     def evaluate(self):
         comm.synchronize()

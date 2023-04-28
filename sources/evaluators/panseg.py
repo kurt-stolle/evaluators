@@ -8,12 +8,11 @@ import itertools
 import multiprocessing as mp
 from functools import cached_property, partial
 from logging import warn
-from typing import Final, NamedTuple, Optional
+from typing import Any, Final, NamedTuple, Optional
 
 import numpy as np
 import numpy.typing as NP
 from detectron2.data import MetadataCatalog
-from detectron2.evaluation import DatasetEvaluator
 from detectron2.utils import comm
 from detectron2.utils.logger import setup_logger
 from tabulate import tabulate
@@ -22,6 +21,7 @@ from torch import Tensor
 from ._shm import EvalPair
 from ._types import Exposures, Outcomes
 from ._utils import count_labels, stable_div
+from .base_evaluator import BaseEvaluator
 
 __all__ = ["PanSegEvaluator"]
 
@@ -51,10 +51,12 @@ class PQStat(NamedTuple):
     fn: NP.NDArray[np.float64]
 
 
-class PanSegEvaluator(DatasetEvaluator):
+class PanSegEvaluator(BaseEvaluator):
     """
     Wrapper around PQ for Detectron2 evaluation.
     """
+
+    task_name = "task_panseg"
 
     def __init__(
         self,
@@ -66,10 +68,8 @@ class PanSegEvaluator(DatasetEvaluator):
         thing_names: Optional[list[str]] = None,
         stuff_names: Optional[list[str]] = None,
         mask_key: Optional[str] = None,
-        task_name="task_panseg",
         offset=2**20,
     ):
-        self.task_name = task_name
         self.label_divisor: Final = label_divisor
 
         if thing_names is None:
@@ -113,29 +113,25 @@ class PanSegEvaluator(DatasetEvaluator):
     def reset(self):
         self._items = []
 
-    def process(self, exps: list[Exposures], outs: list[Outcomes]):
-        for input_, output in zip(exps, outs):
-            if not input_["evaluate"]:
-                continue
+    def process_item(self, input_: dict[str, Any], output: dict[str, Any]) -> None:
+        # Check if sample has annotations
+        true = input_["labels"]
 
-            # Check if sample has annotations
-            true = input_["labels"]
+        # Read output
+        pred, _ = output.get("panoptic_seg", (None, None))
+        if pred is None:
+            raise ValueError("No panoptic prediction!")
 
-            # Read output
-            pred, _ = output.get("panoptic_seg", (None, None))
-            if pred is None:
-                raise ValueError(f"No panoptic prediction!")
+        pred = pred.clone()
+        pred[pred == -1] = self.ignore_label
 
-            pred = pred.clone()
-            pred[pred == -1] = self.ignore_label
+        # Masked predictions
+        if self.mask_key is not None:
+            mask: Tensor = input_[self.mask_key] > 0
+            pred[mask] = self.ignore_label * self.label_divisor
+            true[mask] = self.ignore_label * self.label_divisor
 
-            # Masked predictions
-            if self.mask_key is not None:
-                mask: Tensor = input_[self.mask_key] > 0
-                pred[mask] = self.ignore_label * self.label_divisor
-                true[mask] = self.ignore_label * self.label_divisor
-
-            self._items.append(EvalPair(true=true.cpu().numpy(), pred=pred.cpu().numpy()))
+        self._items.append(EvalPair(true=true.cpu().numpy(), pred=pred.cpu().numpy()))
 
     def evaluate(self):
         comm.synchronize()
@@ -162,6 +158,9 @@ class PanSegEvaluator(DatasetEvaluator):
         pqs = list(itertools.chain(*comm.gather(pqs)))  # type: ignore
         if not comm.is_main_process():
             return
+
+        assert len(pqs) > 0
+        assert len(pqs[0]) == 4
 
         pqs_total = PQStat(*map(partial(np.sum, axis=0), zip(*pqs)))  # type: ignore
         res = evaluate_pq(
@@ -303,7 +302,7 @@ def accumulate(
     pred = pred.astype(np.uint64)
 
     num_cats_ = np.uint64(num_cats)
-    ignore_label_ = np.uint64(ignored_label)
+    ignore_label_ = np.uint64(ignore_label)
     label_divisor_ = np.uint64(label_divisor)
     offset_ = np.uint64(offset)
     zero_ = np.uint64(0)

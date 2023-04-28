@@ -1,3 +1,5 @@
+import jax
+import jax.numpy as jnp
 import numpy as np
 
 
@@ -20,9 +22,23 @@ def count_labels(id_array: np.ndarray) -> dict[np.uint64, np.uint64]:
     return dict(zip(ids, counts.astype(np.uint64)))
 
 
-def stable_div(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+@jax.jit
+def stable_div(a, b):
     """
     Divide two arrays element-wise, returning zero when the divisor is zero.
     """
 
-    return np.true_divide(a, b, out=np.zeros_like(a), where=b != 0)
+    mask = b != 0
+    div = jnp.where(mask, jnp.divide(a, b), jnp.zeros_like(a))
+    return div
+
+
+@jax.jit
+def stable_inv_difference(a, b):
+    """
+    Returns the inverse difference where neither value is zero.
+    """
+
+    mask = (b != 0) & (a != 0)
+
+    return jnp.where(mask, 1.0 / a - 1.0 / b, jnp.zeros_like(a))

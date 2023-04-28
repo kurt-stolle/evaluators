@@ -2,15 +2,13 @@
 Monocular Depth Estimation Evaluators
 """
 
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from functools import cached_property, reduce
-from itertools import starmap
 from typing import Final, Iterable, Optional
 
-import numba
-import numpy as np
+import jax
+import jax.numpy as jnp
 import numpy.typing as NP
-from detectron2.evaluation import DatasetEvaluator
 from detectron2.utils import comm
 from detectron2.utils.logger import setup_logger
 from tabulate import tabulate
@@ -18,54 +16,64 @@ from torch import Tensor
 from typing_extensions import Self
 
 from ._abc import MetricAccumulator, MetricResult
-from ._types import Exposures, Outcomes
+from ._utils import stable_div, stable_inv_difference
+from .base_evaluator import BaseEvaluator
 
-ResultType = NP.NDArray[np.float64]
+__all__ = ["DepthEvaluator"]
+
+ResultType = jnp.ndarray
 
 
-@numba.jit(nopython=True, nogil=True, cache=True)
-def compute_metrics(true: NP.NDArray[np.float64], pred: NP.NDArray[np.float64]) -> NP.NDArray[np.float64]:
-    eps = np.finfo(np.float32).eps
-    true = np.maximum(true, eps)
-    pred = np.maximum(pred, eps)
+_logger = setup_logger(name=f"{__name__}_{comm.get_local_rank()}")
 
+
+@jax.jit
+def compute_metrics(true, pred):
     # Error
     err = true - pred
-    err_abs = np.abs(err)
+    err_abs = jnp.abs(err)
     err_sq = err**2
-    err_rel = err_abs / true
+    err_rel = stable_div(err_abs, true)
 
     # Inverse error
-    true_inv = (1.0) / true
-    pred_inv = (1.0) / pred
-    err_inv_sq = (true_inv - pred_inv) ** 2
+    err_inv_sq = stable_inv_difference(pred, true) ** 2
 
     # Inverse root mean squared error
-    IRMSE = np.sqrt(np.mean(err_inv_sq))
+    IRMSE = jnp.sqrt(jnp.mean(err_inv_sq))
 
     # Mean absolute error
-    MAE = np.mean(err_abs)
+    MAE = jnp.mean(err_abs)
 
     # Root mean squared error
-    RMSE = np.sqrt(np.mean(err_sq))
+    RMSE = jnp.sqrt(jnp.mean(err_sq))
 
     # Mean relative error
-    ARE = np.mean(err_rel)
+    ARE = jnp.mean(err_rel)
 
     # Root mean squared error
-    err_rel_sq = err_sq / np.maximum(true**2, eps)
-    RSE = np.mean(err_rel_sq)
+    true_sq = true**2
+    err_rel_sq = jnp.where(true_sq > 0, jnp.true_divide(err_sq, true_sq), jnp.zeros_like(err_sq))
+    RSE = jnp.mean(err_rel_sq)
 
     # Scale invariant logarithmic error
-    err_log = np.log(true) - np.log(pred)
-    n = len(pred)
+    err_log = jnp.log(true) - jnp.log(pred)
+    err_log = jnp.where(jnp.isfinite(err_log), err_log, jnp.zeros_like(err_log))
+    n = jnp.float32(max(1, len(pred)))
 
-    sile_1 = np.mean(err_log**2)
-    sile_2 = (np.sum(err_log) ** 2) / (n**2)
+    sile_1 = jnp.mean(err_log**2)
+    sile_2 = jnp.sum(err_log) ** 2
+    sile_2 /= n
+    sile_2 /= n
 
     SILE = sile_1 - sile_2
 
-    return np.array([IRMSE, MAE, RMSE, ARE, RSE, SILE])
+    assert IRMSE.shape == MAE.shape
+    assert IRMSE.shape == RMSE.shape
+    assert IRMSE.shape == ARE.shape
+    assert IRMSE.shape == RSE.shape
+    assert IRMSE.shape == SILE.shape
+
+    return jnp.array([IRMSE, MAE, RMSE, ARE, RSE, SILE])
 
 
 class DepthMetrics(MetricResult):
@@ -73,7 +81,7 @@ class DepthMetrics(MetricResult):
 
     def __init__(
         self,
-        categories: NP.NDArray[np.int64],
+        categories: jnp.ndarray,
         true: ResultType,
         pred: ResultType,
     ):
@@ -96,9 +104,9 @@ class DepthMetrics(MetricResult):
         return len(self._categories)
 
     def __getitem__(self, categories: NP.ArrayLike) -> Self:
-        keep = np.isin(
+        keep = jnp.isin(
             self._categories,
-            np.asarray(categories),
+            jnp.asarray(categories),
         )
 
         return type(self)(
@@ -116,7 +124,7 @@ class DepthAccumulator(MetricAccumulator):
     def __init__(self):
         self._true: list[ResultType] = []
         self._pred: list[ResultType] = []
-        self._categories: list[NP.NDArray[np.int64]] = []
+        self._categories: list[jnp.ndarray] = []
 
     def __len__(self):
         """
@@ -132,8 +140,8 @@ class DepthAccumulator(MetricAccumulator):
         *,
         depth_true: ResultType,
         depth_pred: ResultType,
-        valid_mask: Optional[NP.NDArray[np.bool_]] = None,
-        category_mask: Optional[NP.NDArray[np.int64]] = None,
+        valid_mask: Optional[jnp.ndarray] = None,
+        category_mask: Optional[jnp.ndarray] = None,
     ):
         keep = depth_true > 0
         if valid_mask is not None:
@@ -145,23 +153,23 @@ class DepthAccumulator(MetricAccumulator):
         assert len(depth_true) == len(depth_pred)
 
         if category_mask is None:
-            categories = np.full_like(
+            categories = jnp.full_like(
                 depth_true,
                 fill_value=-1,
-                dtype=np.int64,
+                dtype=jnp.int32,
             )
         else:
             categories = category_mask[keep].reshape(-1)
 
-        self._true.append(depth_true.astype(np.float64))
-        self._pred.append(depth_pred.astype(np.float64))
+        self._true.append(depth_true.astype(jnp.float64))
+        self._pred.append(depth_pred.astype(jnp.float64))
         self._categories.append(categories)
 
     def result(self) -> DepthMetrics:
         return DepthMetrics(
-            categories=np.concatenate(self._categories),
-            true=np.concatenate(self._true),
-            pred=np.concatenate(self._pred),
+            categories=jnp.concatenate(self._categories),
+            true=jnp.concatenate(self._true),
+            pred=jnp.concatenate(self._pred),
         )
 
     def gather(self, other: Self) -> Self:
@@ -183,12 +191,9 @@ class DepthAccumulator(MetricAccumulator):
         return self
 
 
-_logger = setup_logger(name=f"{__name__}_{comm.get_local_rank()}")
+class DepthEvaluator(BaseEvaluator):
+    task_name = "task_depth"
 
-__all__ = ["DepthEvaluator"]
-
-
-class DepthEvaluator(DatasetEvaluator):
     def __init__(
         self,
         *,
@@ -196,9 +201,10 @@ class DepthEvaluator(DatasetEvaluator):
         label_divisor: int,
         thing_classes: Iterable[int],
         stuff_classes: Iterable[int],
-        task_name="task_depth",
+        **kwargs,
     ):
-        self.task_name: Final = task_name
+        super().__init__(**kwargs)
+
         self.ignored_label: Final = ignored_label
         self.label_divisor: Final = label_divisor
         self.thing_classes: Final = list(thing_classes)
@@ -234,9 +240,6 @@ class DepthEvaluator(DatasetEvaluator):
         input_: dict[str, Tensor],
         output: dict[str, Tensor],
     ):
-        if not input_["has_truths"]:
-            return
-
         depth_true = input_.get("depth")
         if depth_true is None or depth_true.max() == 0.0:
             return
@@ -260,12 +263,6 @@ class DepthEvaluator(DatasetEvaluator):
             valid_mask=valid_mask,
             category_mask=sem_seg,
         )
-
-    def process(self, inputs: list[Exposures], outputs: list[Outcomes]):
-        for input_, output in zip(inputs, outputs):
-            if not input_["evaluate"]:
-                continue
-            self.process_item(input_, output)
 
     def evaluate(self) -> Optional[dict[str, dict[str, float]]]:
         comm.synchronize()
