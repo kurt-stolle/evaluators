@@ -69,14 +69,14 @@ class PanSegEvaluator(DatasetEvaluator):
         self.label_divisor: int = metadata.label_divisor
 
         # Read thing classes from metadata
-        self.thing_classes: list[int] = list(metadata.thing_dataset_id_to_contiguous_id.values())
+        self.thing_classes: list[int] = list(metadata.thing_translations.values())
         self.thing_names: list[str] = list(metadata.thing_classes)
 
         # Mask for sparse prediction
         self.mask_key = mask_key
         # Read stuff classes from metadata
         self.stuff_classes: list[int] = [
-            id_ for id_ in metadata.stuff_dataset_id_to_contiguous_id.values() if id_ not in self.thing_classes
+            id_ for id_ in metadata.stuff_translations.values() if id_ not in self.thing_classes
         ]
         self.stuff_names: list[str] = list(metadata.stuff_classes)
 
@@ -96,18 +96,11 @@ class PanSegEvaluator(DatasetEvaluator):
 
     def process(self, exps: list[Exposures], outs: list[Outcomes]):
         for input_, output in zip(exps, outs):
-            if not input_["has_truths"]:
+            if not input_["evaluate"]:
                 continue
 
             # Check if sample has annotations
-            sem_seg = input_.get("sem_seg")
-            if sem_seg is None or sem_seg.min() == self.ignored_label:
-                continue
-
-            # Read input
-            true = input_.get("labels")
-            if true is None:
-                continue
+            true = input_["labels"]
 
             # Read output
             pred, _ = output.get("panoptic_seg", (None, None))

@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import multiprocessing as mp
 from contextlib import contextmanager
-from functools import cached_property
+from functools import cached_property, partial
 from multiprocessing import shared_memory
 from statistics import mean
-from typing import Iterable, NamedTuple, TypeVar
+from typing import Iterable, NamedTuple, Sequence, Set, TypeVar
 
 import numpy as np
 import numpy.typing as NP
@@ -184,13 +184,13 @@ class DVPQAccumulator:
         return len(self.thing_classes) + len(self.stuff_classes)
 
     @classmethod
-    def from_metadata(cls, dataset_name: str, **kwargs) -> DVPSEvaluator:
+    def from_metadata(cls, dataset_name: str, **kwargs) -> DVPQAccumulator:
         from detectron2.data import MetadataCatalog
 
         m = MetadataCatalog.get(dataset_name)
 
-        thing_classes = list(m.thing_dataset_id_to_contiguous_id.values())
-        stuff_classes = list(_id for _id in m.stuff_dataset_id_to_contiguous_id.values() if _id not in thing_classes)
+        thing_classes = list(m.thing_translations.values())
+        stuff_classes = list(_id for _id in m.stuff_translations.values() if _id not in thing_classes)
 
         return cls(
             ignored_label=m.ignore_label,
@@ -303,8 +303,7 @@ class DVPSEvaluator(DatasetEvaluator):
     def __init__(
         self,
         accumulators: list[DVPQAccumulator],
-        frames: Iterable[int] | set[int],
-        # output_dir: Optional[str] = None,
+        frames: Iterable[int] | Set[int],
     ):
         if len(accumulators) == 0:
             raise ValueError(f"No accumulators were provided.")
@@ -316,6 +315,13 @@ class DVPSEvaluator(DatasetEvaluator):
         self._frames = set(frames)
 
         self.reset()
+
+    @classmethod
+    def from_metadata(
+        cls, dataset_name: str, thresholds: Sequence[float], frames: Sequence[int] | Set[int], **kwargs
+    ) -> DVPSEvaluator:
+        get_accumulator = partial(DVPQAccumulator.from_metadata, dataset_name)
+        return cls(accumulators=[get_accumulator(threshold=t, **kwargs) for t in thresholds], frames=frames)
 
     def reset(self):
         self._items = []
@@ -354,10 +360,10 @@ class DVPSEvaluator(DatasetEvaluator):
 
     def process(self, inputs, outputs):
         for x, y in zip(inputs, outputs):
+            if not x["evaluate"]:
+                return
             if x.get("labels") is None:
                 continue
-            if not x["has_truths"]:
-                return
             self._read_item(x, y)
 
     def evaluate(self):

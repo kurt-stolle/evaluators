@@ -349,7 +349,7 @@ class STQAccumulator(mp.Process):
 class STEPExposure(TypedDict):
     sequence_id: str | int
     frame: int
-    has_truths: bool
+    evaluate: bool
     labels: Tensor
 
 
@@ -386,8 +386,8 @@ class STEPEvaluator(DatasetEvaluator):
     def from_metadata(cls, dataset_names: str | Sequence[str], **kwargs):
         m = MetadataCatalog.get(next(iter(dataset_names)) if not isinstance(dataset_names, str) else dataset_names)
 
-        thing_classes = list(m.thing_dataset_id_to_contiguous_id.values())
-        stuff_classes = [id_ for id_ in m.stuff_dataset_id_to_contiguous_id.values() if id_ not in thing_classes]
+        thing_classes = list(m.thing_translations.values())
+        stuff_classes = [id_ for id_ in m.stuff_translations.values() if id_ not in thing_classes]
 
         return cls(
             ignored_label=m.ignore_label,
@@ -403,7 +403,7 @@ class STEPEvaluator(DatasetEvaluator):
 
     def process(self, inputs: list[STEPExposure], outputs: list[STEPOutcome]):
         for input_, output in zip(inputs, outputs):
-            if not input_["has_truths"]:
+            if not input_["evaluate"]:
                 continue
             true = input_.get("labels")
             if true is None:
