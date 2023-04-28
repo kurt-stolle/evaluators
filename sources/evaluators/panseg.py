@@ -59,33 +59,47 @@ class PanSegEvaluator(DatasetEvaluator):
     def __init__(
         self,
         *,
-        dataset_name: str,
+        thing_classes: list[int],
+        stuff_classes: list[int],
+        label_divisor: int,
+        ignore_label: int,
+        thing_names: Optional[list[str]] = None,
+        stuff_names: Optional[list[str]] = None,
         mask_key: Optional[str] = None,
         task_name="task_panseg",
+        offset=2**20,
     ):
-        metadata = MetadataCatalog.get(dataset_name)
-
         self.task_name = task_name
-        self.label_divisor: int = metadata.label_divisor
+        self.label_divisor: Final = label_divisor
 
-        # Read thing classes from metadata
-        self.thing_classes: list[int] = list(metadata.thing_translations.values())
-        self.thing_names: list[str] = list(metadata.thing_classes)
+        self.thing_classes = thing_classes
+        self.thing_names = thing_names
 
-        # Mask for sparse prediction
+        self.stuff_classes, self.stuff_names = map(
+            list, zip(*[(id_, name) for id_, name in zip(stuff_classes, stuff_names) if id_ not in self.thing_classes])
+        )
+
         self.mask_key = mask_key
-        # Read stuff classes from metadata
-        self.stuff_classes: list[int] = [
-            id_ for id_ in metadata.stuff_translations.values() if id_ not in self.thing_classes
-        ]
-        self.stuff_names: list[str] = list(metadata.stuff_classes)
 
-        # Read label format
-        self.ignored_label: Final = metadata.ignore_label
-        self.offset: Final = 2**20
+        self.ignore_label: Final = ignore_label
+        self.offset: Final = offset
 
         # Items storage
         self._items: list[EvalPair] = []
+
+    @classmethod
+    def from_metadata(cls, dataset_name: str, **kwargs) -> PanSegEvaluator:
+        metadata = MetadataCatalog.get(dataset_name)
+
+        return cls(
+            label_divisor=metadata.label_divisor,
+            thing_classes=list(metadata.thing_translations.values()),
+            thing_names=list(metadata.thing_classes),
+            stuff_classes=list(metadata.stuff_translations.values()),
+            stuff_names=list(metadata.stuff_classes),
+            ignore_label=metadata.ignore_label,
+            **kwargs,
+        )
 
     @cached_property
     def num_classes(self):
@@ -108,13 +122,13 @@ class PanSegEvaluator(DatasetEvaluator):
                 raise ValueError(f"No panoptic prediction!")
 
             pred = pred.clone()
-            pred[pred == -1] = self.ignored_label
+            pred[pred == -1] = self.ignore_label
 
             # Masked predictions
             if self.mask_key is not None:
                 mask: Tensor = input_[self.mask_key] > 0
-                pred[mask] = self.ignored_label * self.label_divisor
-                true[mask] = self.ignored_label * self.label_divisor
+                pred[mask] = self.ignore_label * self.label_divisor
+                true[mask] = self.ignore_label * self.label_divisor
 
             self._items.append(EvalPair(true=true.cpu().numpy(), pred=pred.cpu().numpy()))
 
@@ -130,7 +144,7 @@ class PanSegEvaluator(DatasetEvaluator):
                         item.true,
                         item.pred,
                         self.num_classes,
-                        self.ignored_label,
+                        self.ignore_label,
                         self.label_divisor,
                         self.offset,
                     )
@@ -250,7 +264,7 @@ def accumulate(
     true: NP.NDArray[np.int32 | np.uint32 | np.uint64],
     pred: NP.NDArray[np.int32 | np.uint32 | np.uint64],
     num_cats: int,
-    ignored_label: int,
+    ignore_label: int,
     label_divisor: int,
     offset: int,
 ) -> PQStat:
@@ -284,7 +298,7 @@ def accumulate(
     pred = pred.astype(np.uint64)
 
     num_cats_ = np.uint64(num_cats)
-    ignored_label_ = np.uint64(ignored_label)
+    ignore_label_ = np.uint64(ignored_label)
     label_divisor_ = np.uint64(label_divisor)
     offset_ = np.uint64(offset)
     zero_ = np.uint64(0)
@@ -302,7 +316,7 @@ def accumulate(
     pred_areas = count_labels(pred)
 
     # We assume the ignored segment has instance id = 0.
-    true_ignored = ignored_label_ * label_divisor_ * offset_
+    true_ignored = ignore_label_ * label_divisor_ * offset_
 
     # Next, combine the groundtruth and predicted labels. Dividing up the
     # pixels based on which groundtruth segment and which predicted segment
@@ -337,7 +351,7 @@ def accumulate(
 
         if true_cat != pred_cat:
             continue
-        if pred_cat == ignored_label_:
+        if pred_cat == ignore_label_:
             continue
 
         # Union between the groundtruth and predicted segments being compared
@@ -364,7 +378,7 @@ def accumulate(
         true_cat = true_label // label_divisor_
 
         # Failing to detect a void segment is not a false negative.
-        if true_cat == ignored_label_:
+        if true_cat == ignore_label_:
             continue
 
         try:
@@ -381,7 +395,7 @@ def accumulate(
         if (isec_areas.get(true_ignored + pred_label, zero_) / pred_areas[pred_label]) > 0.5:
             continue
         pred_cat = int(pred_label // label_divisor_)
-        if pred_cat == ignored_label_:
+        if pred_cat == ignore_label_:
             continue
         try:
             stat.fp[pred_cat] += 1
