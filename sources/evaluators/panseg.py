@@ -72,9 +72,14 @@ class PanSegEvaluator(DatasetEvaluator):
         self.task_name = task_name
         self.label_divisor: Final = label_divisor
 
+        if thing_names is None:
+            thing_names = [str(i) for i in thing_classes]
+
+        if stuff_names is None:
+            stuff_names = [str(i) for i in stuff_classes]
+
         self.thing_classes = thing_classes
         self.thing_names = thing_names
-
         self.stuff_classes, self.stuff_names = map(
             list, zip(*[(id_, name) for id_, name in zip(stuff_classes, stuff_names) if id_ not in self.thing_classes])
         )
