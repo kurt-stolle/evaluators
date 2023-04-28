@@ -250,12 +250,13 @@ class DepthEvaluator(BaseEvaluator):
             raise ValueError("Output has no estimated depth map")
         depth_pred = depth_pred.detach().cpu()
 
-        sem_seg = input_.get("sem_seg")
-        if sem_seg is not None:
-            valid_mask = (sem_seg != self.ignored_label).detach().cpu().numpy()
-            sem_seg = sem_seg.detach().cpu().numpy()
-        else:
-            valid_mask = None
+        pred_labels = input_.get("labels")
+        if pred_labels is None:
+            raise ValueError("Input has no predicted labels")
+
+        sem_seg = pred_labels // self.label_divisor
+        valid_mask = (sem_seg != self.ignored_label).detach().cpu().numpy()
+        sem_seg = sem_seg.detach().cpu().numpy()
 
         self.metrics.update(
             depth_true=depth_true.numpy(),
