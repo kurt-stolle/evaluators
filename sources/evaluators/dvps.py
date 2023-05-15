@@ -185,17 +185,16 @@ class DVPQAccumulator:
         return len(self.thing_classes) + len(self.stuff_classes)
 
     @classmethod
-    def from_metadata(cls, dataset_name: str, **kwargs) -> DVPQAccumulator:
-        from detectron2.data import MetadataCatalog
+    def from_metadata(cls, dataset_names: str | Sequence[str], **kwargs) -> DVPQAccumulator:
+        from ._meta import read_metadata
+        m = read_metadata(dataset_names)
 
-        m = MetadataCatalog.get(dataset_name)
-
-        thing_classes = list(m.thing_translations.values())
-        stuff_classes = list(_id for _id in m.stuff_translations.values() if _id not in thing_classes)
+        thing_classes = list(m["thing_translations"].values())
+        stuff_classes = list(_id for _id in m["stuff_translations"].values() if _id not in thing_classes)
 
         return cls(
-            ignored_label=m.ignore_label,
-            label_divisor=m.label_divisor,
+            ignored_label=m["ignore_label"],
+            label_divisor=m["label_divisor"],
             thing_classes=thing_classes,
             stuff_classes=stuff_classes,
             **kwargs,
@@ -305,6 +304,7 @@ class DVPSEvaluator(BaseEvaluator):
         self,
         accumulators: list[DVPQAccumulator],
         frames: Iterable[int] | Set[int],
+        label_divisor: int = 1000,
     ):
         if len(accumulators) == 0:
             raise ValueError(f"No accumulators were provided.")
@@ -319,10 +319,11 @@ class DVPSEvaluator(BaseEvaluator):
 
     @classmethod
     def from_metadata(
-        cls, dataset_name: str, thresholds: Sequence[float], frames: Sequence[int] | Set[int], **kwargs
+        cls, dataset_names: str | Sequence[str], thresholds: Sequence[float], frames: Sequence[int] | Set[int], **kwargs
     ) -> DVPSEvaluator:
-        get_accumulator = partial(DVPQAccumulator.from_metadata, dataset_name)
-        return cls(accumulators=[get_accumulator(threshold=t, **kwargs) for t in thresholds], frames=frames)
+        get_accumulator = partial(DVPQAccumulator.from_metadata, dataset_names)
+        accumulators=[get_accumulator(depth_threshold=t, **kwargs) for t in thresholds]
+        return cls(accumulators, frames=frames, label_divisor=accumulators[0].label_divisor)
 
     def reset(self):
         self._items = []
@@ -332,7 +333,10 @@ class DVPSEvaluator(BaseEvaluator):
         true_semantic = (true_labels // 1000).astype(np.uint16)
         true_instance = (true_labels % 1000).astype(np.uint16)
 
-        pred_semantic, pred_instance = y["panoptic_labels"]
+        pred, _ = output["panoptic_seg"]  # type: ignore
+        pred[pred == -1] = self.ignored_label * self.label_divisor
+        pred_semantic = pred // self.label_divisor
+        pred_instance = pred % self.label_divisor
         pred_semantic = pred_semantic.detach().cpu().numpy().astype(np.uint16)
         pred_instance = pred_instance.detach().cpu().numpy().astype(np.uint16)
 

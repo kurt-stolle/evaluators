@@ -6,15 +6,8 @@ of a specific machine learning framework.
 """
 import multiprocessing as mp
 from typing import (
-    Any,
-    Iterable,
-    Iterator,
-    MutableMapping,
-    NamedTuple,
-    Optional,
-    Sequence,
-    TypedDict,
-    TypeVar,
+    Any, Iterable, Iterator, MutableMapping, NamedTuple, Optional, Sequence,
+    TypedDict, TypeVar,
 )
 
 import numpy as np
@@ -385,14 +378,15 @@ class STEPEvaluator(BaseEvaluator):
 
     @classmethod
     def from_metadata(cls, dataset_names: str | Sequence[str], **kwargs):
-        m = MetadataCatalog.get(next(iter(dataset_names)) if not isinstance(dataset_names, str) else dataset_names)
+        from ._meta import read_metadata
+        m = read_metadata(dataset_names)
 
-        thing_classes = list(m.thing_translations.values())
-        stuff_classes = [id_ for id_ in m.stuff_translations.values() if id_ not in thing_classes]
+        thing_classes = list(m["thing_translations"].values())
+        stuff_classes = [id_ for id_ in m["stuff_translations"].values() if id_ not in thing_classes]
 
         return cls(
-            ignored_label=m.ignore_label,
-            label_divisor=m.label_divisor,
+            ignored_label=m["ignore_label"],
+            label_divisor=m["label_divisor"],
             thing_classes=thing_classes,
             stuff_classes=stuff_classes,
             **kwargs,
