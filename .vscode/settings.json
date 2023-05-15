@@ -1,18 +1,4 @@
 {
-    "editor.formatOnSave": true,
-    "editor.formatOnPaste": true,
-    "files.trimTrailingWhitespace": true,
-    "files.autoSave": "onFocusChange",
-    "git.autofetch": true,
-    "[jsonc]": {
-        "editor.defaultFormatter": "vscode.json-language-features"
-    },
-    "[python]": {
-        "editor.defaultFormatter": "ms-python.black-formatter"
-    },
-    "python.formatting.provider": "black",
-    "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true,
     "pylint.args": [
         "--rcfile=pyproject.toml"
     ],

@@ -35,8 +35,7 @@ class _DataTuple(NamedTuple):
 
 
 class _Data(NamedTuple):
-    semantic: _DataTuple
-    instance: _DataTuple
+    labels: _DataTuple
     depth: _DataTuple
 
 
@@ -96,7 +95,6 @@ class _DataShared:
         assert len(arrays) % 2 == 0, len(arrays)
 
         data = _Data(
-            _DataTuple(arrays.pop(0), arrays.pop(0)),
             _DataTuple(arrays.pop(0), arrays.pop(0)),
             _DataTuple(arrays.pop(0), arrays.pop(0)),
         )
@@ -187,6 +185,7 @@ class DVPQAccumulator:
     @classmethod
     def from_metadata(cls, dataset_names: str | Sequence[str], **kwargs) -> DVPQAccumulator:
         from ._meta import read_metadata
+
         m = read_metadata(dataset_names)
 
         thing_classes = list(m["thing_translations"].values())
@@ -204,18 +203,9 @@ class DVPQAccumulator:
         # Read data from shared memory
         data = data_shared.recover(data_slice)
 
-        all_classes = self.thing_classes + self.stuff_classes + [self.ignored_label]
-        assert np.isin(data.semantic.true, all_classes).all(), np.unique(data.semantic.true)
-        assert np.isin(data.semantic.pred, all_classes).all(), np.unique(data.semantic.pred)
-
-        # Promote integer type s.t. we can multiply with offset and label
-        # divisor
-        semantic_pred = data.semantic.pred.astype(np.int32)
-        semantic_true = data.semantic.true.astype(np.int32)
-
         # Create label matrices
-        labels_pred = _cat_batch(semantic_pred * self.label_divisor + data.instance.pred)
-        labels_true = _cat_batch(semantic_true * self.label_divisor + data.instance.true)
+        labels_pred = _cat_batch(data.labels.pred).astype(np.int64)
+        labels_true = _cat_batch(data.labels.true).astype(np.int64)
 
         # Ignore predictions when the absolute relative error (ARE) is greater
         # than the threshold value
@@ -304,7 +294,6 @@ class DVPSEvaluator(BaseEvaluator):
         self,
         accumulators: list[DVPQAccumulator],
         frames: Iterable[int] | Set[int],
-        label_divisor: int = 1000,
     ):
         if len(accumulators) == 0:
             raise ValueError(f"No accumulators were provided.")
@@ -316,29 +305,38 @@ class DVPSEvaluator(BaseEvaluator):
         self._frames = set(frames)
 
         self.reset()
+        self.assert_canonical()
+
+    def assert_canonical(self) -> None:
+        assert all(self.label_divisor == a.label_divisor for a in self._accumulators)
+        assert all(self.ignored_label == a.ignored_label for a in self._accumulators)
+
+    @property
+    def label_divisor(self) -> int:
+        return self._accumulators[0].label_divisor
+
+    @property
+    def ignored_label(self) -> int:
+        return self._accumulators[0].ignored_label
 
     @classmethod
     def from_metadata(
         cls, dataset_names: str | Sequence[str], thresholds: Sequence[float], frames: Sequence[int] | Set[int], **kwargs
     ) -> DVPSEvaluator:
         get_accumulator = partial(DVPQAccumulator.from_metadata, dataset_names)
-        accumulators=[get_accumulator(depth_threshold=t, **kwargs) for t in thresholds]
-        return cls(accumulators, frames=frames, label_divisor=accumulators[0].label_divisor)
+        accumulators = [get_accumulator(depth_threshold=t, **kwargs) for t in thresholds]
+        return cls(accumulators, frames=frames)
 
     def reset(self):
         self._items = []
 
     def process_item(self, x: dict[str, Any], y: dict[str, Any]) -> None:
         true_labels = x["labels"].numpy()
-        true_semantic = (true_labels // 1000).astype(np.uint16)
-        true_instance = (true_labels % 1000).astype(np.uint16)
 
-        pred, _ = output["panoptic_seg"]  # type: ignore
-        pred[pred == -1] = self.ignored_label * self.label_divisor
-        pred_semantic = pred // self.label_divisor
-        pred_instance = pred % self.label_divisor
-        pred_semantic = pred_semantic.detach().cpu().numpy().astype(np.uint16)
-        pred_instance = pred_instance.detach().cpu().numpy().astype(np.uint16)
+        pred_labels, _ = y["panoptic_seg"]  # type: ignore
+        pred_labels = pred_labels.clone().detach()
+        pred_labels[pred_labels == -1] = self.ignored_label * self.label_divisor
+        pred_labels = pred_labels.cpu().numpy()
 
         true_depth = x["depth"].detach()
         if not (true_depth > 0).any():
@@ -353,8 +351,7 @@ class DVPSEvaluator(BaseEvaluator):
                 sequence_id=x["sequence_id"],
                 frame=x["frame"],
                 data=_Data(
-                    instance=_DataTuple(true=true_instance, pred=pred_instance),  # type: ignore
-                    semantic=_DataTuple(true=true_semantic, pred=pred_semantic),  # type: ignore
+                    labels=_DataTuple(true=true_labels, pred=pred_labels),  # type: ignore
                     depth=_DataTuple(
                         true=true_depth.cpu().numpy().astype(np.float32),
                         pred=y["depth"].detach().cpu().numpy().astype(np.float32),
@@ -466,8 +463,7 @@ def _split_per_seq(
     for k, v in seq_items.items():
         v = sorted(v, key=lambda i: i.frame)
         d = _Data(
-            semantic=_stack_tuples(i.data.semantic for i in v),
-            instance=_stack_tuples(i.data.instance for i in v),
+            labels=_stack_tuples(i.data.labels for i in v),
             depth=_stack_tuples(i.data.depth for i in v),
         )
 

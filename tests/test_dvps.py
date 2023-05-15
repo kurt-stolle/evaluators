@@ -14,8 +14,7 @@ def test_shared_data():
     dep = np.arange(3 * 6 * 6, dtype=np.float32).reshape(3, 6, 6)
 
     data = dvps._Data(
-        semantic=dvps._DataTuple(sem, sem + 1),
-        instance=dvps._DataTuple(ins, ins + 2),
+        labels=dvps._DataTuple(sem * 1000 + ins, (sem + 1) * 1000 + ins),
         depth=dvps._DataTuple(dep, dep + 3),
     )
 
@@ -86,9 +85,9 @@ def test_evaluator():
             "frame": frame,
         }
         outputs = {
-            "panoptic_labels": (
-                torch.from_numpy(semantic_true),
-                torch.from_numpy(instance_true),
+            "panoptic_seg": (
+                torch.from_numpy(semantic_true) * label_divisor + torch.from_numpy(instance_true),
+                None,
             ),
             "depth": torch.from_numpy(depth_pred),
         }

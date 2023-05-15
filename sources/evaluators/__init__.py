@@ -8,4 +8,4 @@ from .dvps import DVPSEvaluator
 from .panseg import PanSegEvaluator
 from .step import STEPEvaluator
 
-__version__ = "1.0.3"
+__version__ = "1.0.4"

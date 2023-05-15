@@ -412,6 +412,7 @@ class STEPEvaluator(BaseEvaluator):
         self.last_frame[sequence_id] = frame
 
         pred, _ = output["panoptic_seg"]  # type: ignore
+        pred = pred.clone().detach()
         pred[pred == -1] = self.ignored_label * self.label_divisor
         pred = pred.cpu().numpy()
 
